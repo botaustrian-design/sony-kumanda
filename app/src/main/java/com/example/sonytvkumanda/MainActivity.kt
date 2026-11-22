@@ -37,13 +37,13 @@ class MainActivity : Activity() {
         DE("de", "🇩🇪  Deutsch")
     }
 
-    private data class BgTheme(val key: String, val hex: String, val trName: String, val enName: String, val deName: String) {
-        fun title(lang: AppLang): String = when (lang) {
-            AppLang.TR -> trName
-            AppLang.EN -> enName
-            AppLang.DE -> deName
-        }
-    }
+    private data class BgTheme(
+        val key: String,
+        val hex: String,
+        val trName: String,
+        val enName: String,
+        val deName: String
+    )
 
     private val themes = listOf(
         BgTheme("navy", "#0F172A", "Koyu Lacivert", "Dark Navy", "Dunkelblau"),
@@ -67,7 +67,8 @@ class MainActivity : Activity() {
 
     private lateinit var printerCard: LinearLayout
     private lateinit var printerHeader: TextView
-    private lateinit var btnPrinterWake: Button
+    private lateinit var btnPrinterOn: Button
+    private lateinit var btnPrinterOff: Button
     private lateinit var btnPrinterCheck: Button
     private lateinit var printerStatus: TextView
 
@@ -100,7 +101,6 @@ class MainActivity : Activity() {
             setPadding(40, 44, 40, 48)
         }
 
-        // Üst Bar: Başlık + Sağ Üstte 3 Çizgi (☰)
         val topBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -145,7 +145,6 @@ class MainActivity : Activity() {
         topBar.addView(titleBlock)
         topBar.addView(menuButton, LinearLayout.LayoutParams(112, 112))
 
-        // --- TELEVİZYON KARTI ---
         tvCard = createCard()
 
         tvHeader = TextView(this).apply {
@@ -183,7 +182,6 @@ class MainActivity : Activity() {
         tvCard.addView(btnOff, buttonParams(bottomMargin = 0))
         tvCard.addView(tvStatus)
 
-        // --- YAZICI KARTI ---
         printerCard = createCard().apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -200,12 +198,20 @@ class MainActivity : Activity() {
             setPadding(0, 0, 0, 16)
         }
 
-        btnPrinterWake = createModernButton(
+        btnPrinterOn = createModernButton(
             label = "",
-            bgColor = "#2563EB",
-            borderColor = "#60A5FA"
+            bgColor = "#16A34A",
+            borderColor = "#4ADE80"
         ).apply {
-            setOnClickListener { wakePrinter() }
+            setOnClickListener { turnPrinterOn() }
+        }
+
+        btnPrinterOff = createModernButton(
+            label = "",
+            bgColor = "#DC2626",
+            borderColor = "#F87171"
+        ).apply {
+            setOnClickListener { turnPrinterOff() }
         }
 
         btnPrinterCheck = createModernButton(
@@ -224,7 +230,8 @@ class MainActivity : Activity() {
         }
 
         printerCard.addView(printerHeader)
-        printerCard.addView(btnPrinterWake, buttonParams(bottomMargin = 14))
+        printerCard.addView(btnPrinterOn, buttonParams(bottomMargin = 14))
+        printerCard.addView(btnPrinterOff, buttonParams(bottomMargin = 14))
         printerCard.addView(btnPrinterCheck, buttonParams(bottomMargin = 0))
         printerCard.addView(printerStatus)
 
@@ -277,8 +284,7 @@ class MainActivity : Activity() {
         }
         popup.show()
     }
-
-    private fun openSettingsDialog() {
+        private fun openSettingsDialog() {
         val (dialogTitle, bgLabel, langLabel, closeLabel) = when (currentLang) {
             AppLang.TR -> listOf("Ayarlar", "Arka Plan Rengi", "Dil", "Kapat")
             AppLang.EN -> listOf("Settings", "Background Color", "Language", "Close")
@@ -412,7 +418,8 @@ class MainActivity : Activity() {
                 btnOn.text = "⚡  TV'Yİ AÇ"
                 btnOff.text = "⏻  TV'Yİ KAPAT"
                 printerHeader.text = "HP ENVY 6400e ($printerIp)"
-                btnPrinterWake.text = "🖨️  YAZICIYI UYANDIR"
+                btnPrinterOn.text = "⚡  YAZICIYI AÇ"
+                btnPrinterOff.text = "⏻  YAZICIYI KAPAT"
                 btnPrinterCheck.text = "📡  YAZICI DURUMU"
             }
             AppLang.EN -> {
@@ -421,7 +428,8 @@ class MainActivity : Activity() {
                 btnOn.text = "⚡  TURN TV ON"
                 btnOff.text = "⏻  TURN TV OFF"
                 printerHeader.text = "HP ENVY 6400e ($printerIp)"
-                btnPrinterWake.text = "🖨️  WAKE PRINTER"
+                btnPrinterOn.text = "⚡  TURN PRINTER ON"
+                btnPrinterOff.text = "⏻  TURN PRINTER OFF"
                 btnPrinterCheck.text = "📡  PRINTER STATUS"
             }
             AppLang.DE -> {
@@ -430,7 +438,8 @@ class MainActivity : Activity() {
                 btnOn.text = "⚡  TV EINSCHALTEN"
                 btnOff.text = "⏻  TV AUSSCHALTEN"
                 printerHeader.text = "HP ENVY 6400e ($printerIp)"
-                btnPrinterWake.text = "🖨️  DRUCKER WECKEN"
+                btnPrinterOn.text = "⚡  DRUCKER EINSCHALTEN"
+                btnPrinterOff.text = "⏻  DRUCKER AUSSCHALTEN"
                 btnPrinterCheck.text = "📡  DRUCKERSTATUS"
             }
         }
@@ -478,11 +487,15 @@ class MainActivity : Activity() {
     private fun formatPrinterStatus(key: String, arg: String?): String = when (currentLang) {
         AppLang.TR -> when (key) {
             "printer_ready" -> "Yazıcı Hazır ($printerIp)"
-            "printer_waking" -> "Yazıcı uyandırılıyor ($printerIp)..."
-            "printer_awake" -> "Yazıcı uyanık ve erişilebilir (HTTP ${arg ?: "-"})"
+            "printer_waking" -> "Yazıcı açma/uyandırma komutu gönderiliyor..."
+            "printer_awake" -> "Yazıcı uyandı ve yanıt verdi (${arg ?: ""})"
             "printer_reachable" -> "Yazıcı ağda yanıt verdi (uyku/bekleme)"
             "printer_unreachable" -> "Yazıcıya ulaşılamadı (kapalı veya farklı IP)"
-            "printer_err_wake" -> "Uyandırma hatası: ${arg ?: "Bağlantı yok"}"
+            "printer_err_wake" -> "Açma hatası: ${arg ?: "Bağlantı yok"}"
+            "printer_turning_off" -> "Yazıcı kapatma komutu gönderiliyor..."
+            "printer_off_sent" -> "Kapatma komutu denendi (${arg ?: ""})"
+            "printer_off_unsupported" -> "Bu HP modelinde ağdan kapatma açık değil"
+            "printer_err_off" -> "Kapatma hatası: ${arg ?: "Bağlantı yok"}"
             "printer_checking" -> "Yazıcı durumu kontrol ediliyor..."
             "printer_online" -> arg ?: "Çevrimiçi"
             "printer_offline" -> "Yanıt yok (arka tuş kapalı veya uyku derin)"
@@ -491,11 +504,15 @@ class MainActivity : Activity() {
         }
         AppLang.EN -> when (key) {
             "printer_ready" -> "Printer Ready ($printerIp)"
-            "printer_waking" -> "Waking printer ($printerIp)..."
-            "printer_awake" -> "Printer awake and reachable (HTTP ${arg ?: "-"})"
+            "printer_waking" -> "Sending printer power-on/wake commands..."
+            "printer_awake" -> "Printer awake and responded (${arg ?: ""})"
             "printer_reachable" -> "Printer responded on network (sleep/standby)"
             "printer_unreachable" -> "Printer unreachable (off or different IP)"
-            "printer_err_wake" -> "Wake error: ${arg ?: "No connection"}"
+            "printer_err_wake" -> "Power-on error: ${arg ?: "No connection"}"
+            "printer_turning_off" -> "Sending printer power-off command..."
+            "printer_off_sent" -> "Power-off command attempted (${arg ?: ""})"
+            "printer_off_unsupported" -> "Network power-off not exposed on this HP model"
+            "printer_err_off" -> "Power-off error: ${arg ?: "No connection"}"
             "printer_checking" -> "Checking printer status..."
             "printer_online" -> arg ?: "Online"
             "printer_offline" -> "No response (power button off or deep sleep)"
@@ -504,20 +521,23 @@ class MainActivity : Activity() {
         }
         AppLang.DE -> when (key) {
             "printer_ready" -> "Drucker Bereit ($printerIp)"
-            "printer_waking" -> "Drucker wird geweckt ($printerIp)..."
-            "printer_awake" -> "Drucker wach und erreichbar (HTTP ${arg ?: "-"})"
+            "printer_waking" -> "Drucker-Einschalt-/Weckbefehle werden gesendet..."
+            "printer_awake" -> "Drucker wach und erreichbar (${arg ?: ""})"
             "printer_reachable" -> "Drucker im Netz erreichbar (Ruhezustand)"
             "printer_unreachable" -> "Drucker nicht erreichbar (aus oder andere IP)"
-            "printer_err_wake" -> "Weckfehler: ${arg ?: "Keine Verbindung"}"
+            "printer_err_wake" -> "Einschaltfehler: ${arg ?: "Keine Verbindung"}"
+            "printer_turning_off" -> "Drucker-Ausschaltbefehl wird gesendet..."
+            "printer_off_sent" -> "Ausschaltbefehl gesendet (${arg ?: ""})"
+            "printer_off_unsupported" -> "Netz-Ausschalten bei diesem HP-Modell nicht aktiv"
+            "printer_err_off" -> "Ausschaltfehler: ${arg ?: "Keine Verbindung"}"
             "printer_checking" -> "Druckerstatus wird geprüft..."
             "printer_online" -> arg ?: "Online"
-                        "printer_offline" -> "Keine Antwort (Netztaste aus oder Tiefschlaf)"
+            "printer_offline" -> "Keine Antwort (Netztaste aus oder Tiefschlaf)"
             "printer_err_check" -> "Prüffehler: ${arg ?: "Fehler"}"
             else -> arg ?: ""
         }
     }
-
-    private fun setTvStatusKey(key: String, colorHex: String, arg: String? = null) {
+        private fun setTvStatusKey(key: String, colorHex: String, arg: String? = null) {
         lastTvStatusKey = key
         lastTvStatusArg = arg
         lastTvColor = colorHex
@@ -590,7 +610,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun wakePrinter() {
+    private fun turnPrinterOn() {
         setPrinterStatusKey("printer_waking", "#60A5FA")
         thread {
             try {
@@ -622,7 +642,7 @@ class MainActivity : Activity() {
 
                 when {
                     httpCode in 200..499 || anyOpen -> {
-                        setPrinterStatusKey("printer_awake", "#4ADE80", httpCode.toString())
+                        setPrinterStatusKey("printer_awake", "#4ADE80", "HTTP $httpCode")
                     }
                     reachable -> {
                         setPrinterStatusKey("printer_reachable", "#FACC15")
@@ -633,6 +653,47 @@ class MainActivity : Activity() {
                 }
             } catch (e: Exception) {
                 setPrinterStatusKey("printer_err_wake", "#F87171", e.localizedMessage)
+            }
+        }
+    }
+
+    private fun turnPrinterOff() {
+        setPrinterStatusKey("printer_turning_off", "#F87171")
+        thread {
+            try {
+                val endpoints = listOf(
+                    "http://$printerIp/cdm/system/v1/power" to """{"powerState":"off"}""",
+                    "http://$printerIp/DevMgmt/ProductConfigDyn.xml" to """<ps:ProductConfigDyn xmlns:ps="http://www.hp.com/schemas/imaging/con/ledm/productconfigdyn/2007/11/05"><ps:PowerState>Off</ps:PowerState></ps:ProductConfigDyn>"""
+                )
+
+                var acceptedCode: Int? = null
+                for ((endpoint, payload) in endpoints) {
+                    try {
+                        val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+                            requestMethod = "PUT"
+                            setRequestProperty("Content-Type", "application/json")
+                            connectTimeout = 2000
+                            readTimeout = 2000
+                            doOutput = true
+                        }
+                        conn.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
+                        val code = conn.responseCode
+                        conn.disconnect()
+                        if (code in 200..299) {
+                            acceptedCode = code
+                            break
+                        }
+                    } catch (_: Exception) {
+                    }
+                }
+
+                if (acceptedCode != null) {
+                    setPrinterStatusKey("printer_off_sent", "#4ADE80", "HTTP $acceptedCode")
+                } else {
+                    setPrinterStatusKey("printer_off_unsupported", "#FACC15")
+                }
+            } catch (e: Exception) {
+                setPrinterStatusKey("printer_err_off", "#F87171", e.localizedMessage)
             }
         }
     }
