@@ -74,7 +74,7 @@ class MainActivity : Activity() {
             borderColor = "#4ADE80"
         ).apply {
             setOnClickListener {
-                setStatus("Açma (WoL) paketi gönderiliyor...", "#4ADE80")
+                setStatus("WoL (9, 7, 2304) gönderiliyor...", "#4ADE80")
                 sendWakeOnLan(tvMac)
             }
         }
@@ -177,22 +177,25 @@ class MainActivity : Activity() {
                     InetAddress.getByName(subnetBroadcast),
                     InetAddress.getByName("255.255.255.255")
                 )
-                val ports = listOf(9, 7)
+                val ports = listOf(9, 7, 2304)
 
                 val socket = DatagramSocket().apply {
                     broadcast = true
                     soTimeout = 2000
                 }
 
-                for (addr in targets) {
-                    for (port in ports) {
-                        val packet = DatagramPacket(magicPacket, magicPacket.size, addr, port)
-                        socket.send(packet)
+                repeat(3) {
+                    for (addr in targets) {
+                        for (port in ports) {
+                            val packet = DatagramPacket(magicPacket, magicPacket.size, addr, port)
+                            socket.send(packet)
+                        }
                     }
+                    Thread.sleep(150)
                 }
                 socket.close()
 
-                setStatus("WoL gönderildi ($tvIp & $subnetBroadcast)", "#4ADE80")
+                setStatus("WoL (9, 7, 2304) gönderildi", "#4ADE80")
             } catch (e: Exception) {
                 setStatus("WoL hatası: ${e.localizedMessage ?: "Bilinmeyen hata"}", "#F87171")
             } finally {
