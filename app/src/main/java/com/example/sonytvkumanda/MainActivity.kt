@@ -1,11 +1,12 @@
 package com.example.sonytvkumanda
 
+import android.app.Activity
+import android.graphics.Color
 import android.os.Bundle
-import android.view.View
-import android.view.ViewGroup
+import android.view.Gravity
 import android.widget.Button
+import android.widget.LinearLayout
 import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.HttpURLConnection
@@ -13,7 +14,7 @@ import java.net.InetAddress
 import java.net.URL
 import kotlin.concurrent.thread
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : Activity() {
 
     private val tvIp = "192.168.8.102"
     private val tvMac = "e8:6f:38:a6:97:83"
@@ -21,37 +22,40 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
 
-        val rootView = findViewById<View>(android.R.id.content)
-        val buttons = findAllButtons(rootView)
-
-        val btnOn = buttons.getOrNull(0)
-        val btnOff = buttons.getOrNull(1)
-
-        btnOn?.setOnClickListener {
-            sendWakeOnLan(tvMac)
-            Toast.makeText(this, "TV açma sinyali gönderildi", Toast.LENGTH_SHORT).show()
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setBackgroundColor(Color.parseColor("#121212"))
+            setPadding(48, 48, 48, 48)
         }
 
-        btnOff?.setOnClickListener {
-            sendPowerOff(tvIp, tvPsk)
-            Toast.makeText(this, "TV kapatma komutu gönderildi", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private fun findAllButtons(view: View?): List<Button> {
-        if (view == null) return emptyList()
-        val result = mutableListOf<Button>()
-        if (view is Button) {
-            result.add(view)
-        }
-        if (view is ViewGroup) {
-            for (i in 0 until view.childCount) {
-                result.addAll(findAllButtons(view.getChildAt(i)))
+        val btnOn = Button(this).apply {
+            text = "TV'YI AC"
+            setOnClickListener {
+                sendWakeOnLan(tvMac)
+                Toast.makeText(this@MainActivity, "Acma sinyali gonderildi", Toast.LENGTH_SHORT).show()
             }
         }
-        return result
+
+        val btnOff = Button(this).apply {
+            text = "TV'YI KAPAT"
+            setOnClickListener {
+                sendPowerOff(tvIp, tvPsk)
+                Toast.makeText(this@MainActivity, "Kapatma komutu gonderildi", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        val params = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            bottomMargin = 32
+        }
+
+        root.addView(btnOn, params)
+        root.addView(btnOff)
+        setContentView(root)
     }
 
     private fun sendWakeOnLan(macAddress: String) {
