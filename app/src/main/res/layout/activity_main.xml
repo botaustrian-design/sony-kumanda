@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:gravity="center"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Sony BRAVIA Kontrol"
+        android:textSize="24sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="32dp" />
+
+    <Button
+        android:id="@+id/btnTvAc"
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
+        android:text="TV'Yİ AÇ"
+        android:textSize="18sp"
+        android:layout_marginBottom="16dp" />
+
+    <Button
+        android:id="@+id/btnTvKapat"
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
+        android:text="TV'Yİ KAPAT"
+        android:textSize="18sp"
+        android:layout_marginBottom="24dp" />
+
+    <TextView
+        android:id="@+id/tvDurum"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Hazır (192.168.8.102)"
+        android:textSize="14sp" />
+
+</LinearLayout>
