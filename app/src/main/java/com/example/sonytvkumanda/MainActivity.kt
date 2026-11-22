@@ -74,8 +74,8 @@ class MainActivity : Activity() {
             borderColor = "#4ADE80"
         ).apply {
             setOnClickListener {
-                setStatus("WoL (9, 7, 2304) gönderiliyor...", "#4ADE80")
-                sendWakeOnLan(tvMac)
+                setStatus("Açma sinyalleri gönderiliyor (1/3)...", "#4ADE80")
+                sendWakeOnLanBurst(tvMac)
             }
         }
 
@@ -100,14 +100,14 @@ class MainActivity : Activity() {
 
         val onParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
-            148
+            164
         ).apply {
             bottomMargin = 24
         }
 
         val offParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
-            148
+            140
         )
 
         card.addView(btnOn, onParams)
@@ -128,7 +128,7 @@ class MainActivity : Activity() {
     private fun createModernButton(label: String, bgColor: String, borderColor: String): Button {
         return Button(this).apply {
             text = label
-            textSize = 17f
+            textSize = 18f
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
             background = GradientDrawable().apply {
@@ -149,7 +149,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun sendWakeOnLan(macAddress: String) {
+    private fun sendWakeOnLanBurst(macAddress: String) {
         thread {
             var multicastLock: WifiManager.MulticastLock? = null
             try {
@@ -184,18 +184,21 @@ class MainActivity : Activity() {
                     soTimeout = 2000
                 }
 
-                repeat(3) {
+                for (round in 1..3) {
+                    setStatus("Açma sinyalleri gönderiliyor ($round/3)...", "#4ADE80")
                     for (addr in targets) {
                         for (port in ports) {
                             val packet = DatagramPacket(magicPacket, magicPacket.size, addr, port)
                             socket.send(packet)
                         }
                     }
-                    Thread.sleep(150)
+                    if (round < 3) {
+                        Thread.sleep(600)
+                    }
                 }
                 socket.close()
 
-                setStatus("WoL (9, 7, 2304) gönderildi", "#4ADE80")
+                setStatus("3 tur WoL tamamlandı ($tvMac)", "#4ADE80")
             } catch (e: Exception) {
                 setStatus("WoL hatası: ${e.localizedMessage ?: "Bilinmeyen hata"}", "#F87171")
             } finally {
