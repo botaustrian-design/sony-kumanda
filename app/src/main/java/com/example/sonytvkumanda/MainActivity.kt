@@ -1,6 +1,7 @@
 package com.example.sonytvkumanda
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -10,12 +11,15 @@ import android.view.Gravity
 import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.PopupMenu
 import android.widget.ScrollView
 import android.widget.TextView
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.HttpURLConnection
 import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.net.URL
 import kotlin.concurrent.thread
 
@@ -25,130 +29,648 @@ class MainActivity : Activity() {
     private val tvMac = "e8:6f:38:a6:97:83"
     private val tvPsk = "1234"
     private val subnetBroadcast = "192.168.8.255"
+    private val printerIp = "192.168.8.147"
 
+    private enum class AppLang(val code: String, val labelWithFlag: String) {
+        TR("tr", "🇹🇷  Türkçe"),
+        EN("en", "🇬🇧  English"),
+        DE("de", "🇩🇪  Deutsch")
+    }
+
+    private data class BgTheme(val key: String, val hex: String, val trName: String, val enName: String, val deName: String) {
+        fun title(lang: AppLang): String = when (lang) {
+            AppLang.TR -> trName
+            AppLang.EN -> enName
+            AppLang.DE -> deName
+        }
+    }
+
+    private val themes = listOf(
+        BgTheme("navy", "#0F172A", "Koyu Lacivert", "Dark Navy", "Dunkelblau"),
+        BgTheme("black", "#09090B", "Gece Siyahı", "Pitch Black", "Tiefschwarz"),
+        BgTheme("charcoal", "#18181B", "Koyu Gri", "Dark Charcoal", "Dunkelgrau"),
+        BgTheme("forest", "#06281E", "Koyu Yeşil", "Deep Forest", "Dunkelgrün")
+    )
+
+    private var currentLang = AppLang.TR
+    private var currentTheme = themes[0]
+
+    private lateinit var scrollView: ScrollView
+    private lateinit var titleText: TextView
+    private lateinit var subtitleText: TextView
+    private lateinit var menuButton: Button
+    private lateinit var tvCard: LinearLayout
+    private lateinit var tvHeader: TextView
+    private lateinit var btnOn: Button
+    private lateinit var btnOff: Button
     private lateinit var tvStatus: TextView
+
+    private lateinit var printerCard: LinearLayout
+    private lateinit var printerHeader: TextView
+    private lateinit var btnPrinterWake: Button
+    private lateinit var btnPrinterCheck: Button
+    private lateinit var printerStatus: TextView
+
+    private var lastTvStatusKey = "tv_ready"
+    private var lastTvStatusArg: String? = null
+    private var lastTvColor = "#CBD5E1"
+
+    private var lastPrinterStatusKey = "printer_ready"
+    private var lastPrinterStatusArg: String? = null
+    private var lastPrinterColor = "#CBD5E1"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val scrollView = ScrollView(this).apply {
-            setBackgroundColor(Color.parseColor("#0F172A"))
+        val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
+        val savedLang = prefs.getString("lang", AppLang.TR.code) ?: AppLang.TR.code
+        currentLang = AppLang.entries.firstOrNull { it.code == savedLang } ?: AppLang.TR
+
+        val savedThemeKey = prefs.getString("theme", themes[0].key) ?: themes[0].key
+        currentTheme = themes.firstOrNull { it.key == savedThemeKey } ?: themes[0]
+
+        scrollView = ScrollView(this).apply {
+            setBackgroundColor(Color.parseColor(currentTheme.hex))
             isFillViewport = true
         }
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(48, 64, 48, 64)
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(40, 44, 40, 48)
         }
 
-        val titleText = TextView(this).apply {
-            text = "SONY BRAVIA"
-            textSize = 26f
+        // Üst Bar: Başlık + Sağ Üstte 3 Çizgi (☰)
+        val topBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, 8)
+        }
+
+        val titleBlock = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        titleText = TextView(this).apply {
+            textSize = 22f
             setTextColor(Color.parseColor("#F8FAFC"))
             typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
         }
 
-        val subtitleText = TextView(this).apply {
-            text = "IP: $tvIp  •  PSK: $tvPsk\nMAC: $tvMac"
-            textSize = 13f
+        subtitleText = TextView(this).apply {
+            text = "TV: $tvIp  •  HP: $printerIp"
+            textSize = 12f
             setTextColor(Color.parseColor("#94A3B8"))
-            gravity = Gravity.CENTER
-            setPadding(0, 8, 0, 36)
+            setPadding(0, 4, 0, 0)
         }
 
-        val card = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+        menuButton = Button(this).apply {
+            text = "☰"
+            textSize = 20f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
             background = GradientDrawable().apply {
                 setColor(Color.parseColor("#1E293B"))
-                cornerRadius = 36f
-                setStroke(2, Color.parseColor("#334155"))
+                cornerRadius = 22f
+                setStroke(2, Color.parseColor("#475569"))
             }
-            setPadding(40, 44, 40, 44)
+            elevation = 4f
+            stateListAnimator = null
+            setOnClickListener { showTopMenu(it) }
         }
 
-        val btnOn = createModernButton(
-            label = "⚡  TV'Yİ AÇ",
+        titleBlock.addView(titleText)
+        titleBlock.addView(subtitleText)
+        topBar.addView(titleBlock)
+        topBar.addView(menuButton, LinearLayout.LayoutParams(112, 112))
+
+        // --- TELEVİZYON KARTI ---
+        tvCard = createCard()
+
+        tvHeader = TextView(this).apply {
+            textSize = 16f
+            setTextColor(Color.parseColor("#E2E8F0"))
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, 0, 0, 16)
+        }
+
+        btnOn = createModernButton(
+            label = "",
             bgColor = "#16A34A",
             borderColor = "#4ADE80"
         ).apply {
-            setOnClickListener {
-                sendDigitalPowerOn()
-            }
+            setOnClickListener { sendDigitalPowerOn() }
         }
 
-        val btnOff = createModernButton(
-            label = "⏻  TV'Yİ KAPAT",
+        btnOff = createModernButton(
+            label = "",
             bgColor = "#DC2626",
             borderColor = "#F87171"
         ).apply {
-            setOnClickListener {
-                sendPowerOff()
-            }
+            setOnClickListener { sendPowerOff() }
         }
 
         tvStatus = TextView(this).apply {
-            text = "Hazır — Dijital aç/kapat aktif"
             textSize = 13f
             setTextColor(Color.parseColor("#CBD5E1"))
             gravity = Gravity.CENTER
-            setPadding(16, 32, 16, 0)
+            setPadding(12, 18, 12, 0)
         }
 
-        val onParams = LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            164
+        tvCard.addView(tvHeader)
+        tvCard.addView(btnOn, buttonParams(bottomMargin = 14))
+        tvCard.addView(btnOff, buttonParams(bottomMargin = 0))
+        tvCard.addView(tvStatus)
+
+        // --- YAZICI KARTI ---
+        printerCard = createCard().apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = 24
+            }
+        }
+
+        printerHeader = TextView(this).apply {
+            textSize = 16f
+            setTextColor(Color.parseColor("#E2E8F0"))
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, 0, 0, 16)
+        }
+
+        btnPrinterWake = createModernButton(
+            label = "",
+            bgColor = "#2563EB",
+            borderColor = "#60A5FA"
         ).apply {
-            bottomMargin = 24
+            setOnClickListener { wakePrinter() }
         }
 
-        val offParams = LinearLayout.LayoutParams(
+        btnPrinterCheck = createModernButton(
+            label = "",
+            bgColor = "#334155",
+            borderColor = "#64748B"
+        ).apply {
+            setOnClickListener { checkPrinterStatus() }
+        }
+
+        printerStatus = TextView(this).apply {
+            textSize = 13f
+            setTextColor(Color.parseColor("#CBD5E1"))
+            gravity = Gravity.CENTER
+            setPadding(12, 18, 12, 0)
+        }
+
+        printerCard.addView(printerHeader)
+        printerCard.addView(btnPrinterWake, buttonParams(bottomMargin = 14))
+        printerCard.addView(btnPrinterCheck, buttonParams(bottomMargin = 0))
+        printerCard.addView(printerStatus)
+
+        root.addView(topBar, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
-            140
-        )
-
-        card.addView(btnOn, onParams)
-        card.addView(btnOff, offParams)
-        card.addView(tvStatus)
-
-        root.addView(titleText)
-        root.addView(subtitleText)
-        root.addView(card, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            bottomMargin = 20
+        })
+        root.addView(tvCard, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT
         ))
+        root.addView(printerCard)
 
         scrollView.addView(root)
         setContentView(scrollView)
+
+        applyLanguageAndTheme()
+    }
+
+    private fun showTopMenu(anchor: View) {
+        val popup = PopupMenu(this, anchor)
+        val (tvMenu, printerMenu, settingsMenu) = when (currentLang) {
+            AppLang.TR -> Triple("Televizyon", "Yazıcı", "Ayarlar")
+            AppLang.EN -> Triple("Television", "Printer", "Settings")
+            AppLang.DE -> Triple("Fernseher", "Drucker", "Einstellungen")
+        }
+
+        popup.menu.add(0, 1, 0, tvMenu)
+        popup.menu.add(0, 2, 1, printerMenu)
+        popup.menu.add(0, 3, 2, settingsMenu)
+
+        popup.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                1 -> {
+                    scrollView.post { scrollView.smoothScrollTo(0, tvCard.top) }
+                    true
+                }
+                2 -> {
+                    scrollView.post { scrollView.smoothScrollTo(0, printerCard.top) }
+                    true
+                }
+                3 -> {
+                    openSettingsDialog()
+                    true
+                }
+                else -> false
+            }
+        }
+        popup.show()
+    }
+
+    private fun openSettingsDialog() {
+        val (dialogTitle, bgLabel, langLabel, closeLabel) = when (currentLang) {
+            AppLang.TR -> listOf("Ayarlar", "Arka Plan Rengi", "Dil", "Kapat")
+            AppLang.EN -> listOf("Settings", "Background Color", "Language", "Close")
+            AppLang.DE -> listOf("Einstellungen", "Hintergrundfarbe", "Sprache", "Schließen")
+        }
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(44, 24, 44, 16)
+        }
+
+        val bgTitle = TextView(this).apply {
+            text = bgLabel
+            textSize = 15f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, 0, 0, 12)
+        }
+        container.addView(bgTitle)
+
+        val bgButtonsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, 24)
+        }
+
+        themes.forEachIndexed { idx, theme ->
+            val swatch = Button(this).apply {
+                text = if (theme.key == currentTheme.key) "✓" else ""
+                textSize = 15f
+                setTextColor(Color.WHITE)
+                typeface = Typeface.DEFAULT_BOLD
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor(theme.hex))
+                    cornerRadius = 20f
+                    setStroke(
+                        if (theme.key == currentTheme.key) 5 else 2,
+                        if (theme.key == currentTheme.key) Color.parseColor("#38BDF8") else Color.parseColor("#64748B")
+                    )
+                }
+                stateListAnimator = null
+                setOnClickListener {
+                    currentTheme = theme
+                    getSharedPreferences("app_prefs", MODE_PRIVATE)
+                        .edit().putString("theme", theme.key).apply()
+                    applyLanguageAndTheme()
+                    openSettingsDialogRefresh(container, bgButtonsRow)
+                }
+            }
+            val lp = LinearLayout.LayoutParams(0, 110, 1f)
+            if (idx < themes.lastIndex) lp.marginEnd = 14
+            bgButtonsRow.addView(swatch, lp)
+        }
+        container.addView(bgButtonsRow)
+
+        val langTitle = TextView(this).apply {
+            text = langLabel
+            textSize = 15f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, 4, 0, 12)
+        }
+        container.addView(langTitle)
+
+        var dialogRef: AlertDialog? = null
+        AppLang.entries.forEach { lang ->
+            val isSelected = lang == currentLang
+            val langBtn = Button(this).apply {
+                text = if (isSelected) "${lang.labelWithFlag}  ✓" else lang.labelWithFlag
+                textSize = 16f
+                setTextColor(Color.WHITE)
+                typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                setPadding(28, 0, 28, 0)
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor(if (isSelected) "#1D4ED8" else "#1E293B"))
+                    cornerRadius = 22f
+                    setStroke(
+                        3,
+                        Color.parseColor(if (isSelected) "#60A5FA" else "#475569")
+                    )
+                }
+                stateListAnimator = null
+                setOnClickListener {
+                    currentLang = lang
+                    getSharedPreferences("app_prefs", MODE_PRIVATE)
+                        .edit().putString("lang", lang.code).apply()
+                    applyLanguageAndTheme()
+                    dialogRef?.dismiss()
+                }
+            }
+            container.addView(langBtn, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                116
+            ).apply {
+                bottomMargin = 12
+            })
+        }
+
+        dialogRef = AlertDialog.Builder(this)
+            .setTitle(dialogTitle)
+            .setView(container)
+            .setPositiveButton(closeLabel, null)
+            .create()
+        dialogRef.show()
+    }
+
+    private fun openSettingsDialogRefresh(container: LinearLayout, bgButtonsRow: LinearLayout) {
+        for (i in 0 until bgButtonsRow.childCount) {
+            val child = bgButtonsRow.getChildAt(i) as? Button ?: continue
+            val theme = themes[i]
+            val selected = theme.key == currentTheme.key
+            child.text = if (selected) "✓" else ""
+            child.background = GradientDrawable().apply {
+                setColor(Color.parseColor(theme.hex))
+                cornerRadius = 20f
+                setStroke(
+                    if (selected) 5 else 2,
+                    if (selected) Color.parseColor("#38BDF8") else Color.parseColor("#64748B")
+                )
+            }
+        }
+        container.invalidate()
+    }
+
+    private fun applyLanguageAndTheme() {
+        scrollView.setBackgroundColor(Color.parseColor(currentTheme.hex))
+
+        when (currentLang) {
+            AppLang.TR -> {
+                titleText.text = "EV KUMANDA MERKEZİ"
+                tvHeader.text = "SONY BRAVIA ($tvIp)"
+                btnOn.text = "⚡  TV'Yİ AÇ"
+                btnOff.text = "⏻  TV'Yİ KAPAT"
+                printerHeader.text = "HP ENVY 6400e ($printerIp)"
+                btnPrinterWake.text = "🖨️  YAZICIYI UYANDIR"
+                btnPrinterCheck.text = "📡  YAZICI DURUMU"
+            }
+            AppLang.EN -> {
+                titleText.text = "HOME CONTROL HUB"
+                tvHeader.text = "SONY BRAVIA ($tvIp)"
+                btnOn.text = "⚡  TURN TV ON"
+                btnOff.text = "⏻  TURN TV OFF"
+                printerHeader.text = "HP ENVY 6400e ($printerIp)"
+                btnPrinterWake.text = "🖨️  WAKE PRINTER"
+                btnPrinterCheck.text = "📡  PRINTER STATUS"
+            }
+            AppLang.DE -> {
+                titleText.text = "HEIMSTEUERUNG"
+                tvHeader.text = "SONY BRAVIA ($tvIp)"
+                btnOn.text = "⚡  TV EINSCHALTEN"
+                btnOff.text = "⏻  TV AUSSCHALTEN"
+                printerHeader.text = "HP ENVY 6400e ($printerIp)"
+                btnPrinterWake.text = "🖨️  DRUCKER WECKEN"
+                btnPrinterCheck.text = "📡  DRUCKERSTATUS"
+            }
+        }
+
+        renderTvStatus()
+        renderPrinterStatus()
+    }
+
+    private fun formatTvStatus(key: String, arg: String?): String = when (currentLang) {
+        AppLang.TR -> when (key) {
+            "tv_ready" -> "TV Hazır"
+            "tv_sending_on" -> "Dijital açma komutları gönderiliyor..."
+            "tv_sent_on" -> "WoL + HTTP(true) + IRCC gönderildi"
+            "tv_err_on" -> "Açma hatası: ${arg ?: "Bilinmeyen hata"}"
+            "tv_sending_off" -> "Kapatma komutu gönderiliyor..."
+            "tv_off_ok" -> "TV kapatıldı (HTTP ${arg ?: ""})"
+            "tv_off_code" -> "TV yanıt kodu: HTTP ${arg ?: ""}"
+            "tv_err_off" -> "Kapatma hatası: ${arg ?: "Bağlantı yok"}"
+            else -> arg ?: ""
+        }
+        AppLang.EN -> when (key) {
+            "tv_ready" -> "TV Ready"
+            "tv_sending_on" -> "Sending digital power-on commands..."
+            "tv_sent_on" -> "WoL + HTTP(true) + IRCC sent"
+            "tv_err_on" -> "Power-on error: ${arg ?: "Unknown error"}"
+            "tv_sending_off" -> "Sending power-off command..."
+            "tv_off_ok" -> "TV turned off (HTTP ${arg ?: ""})"
+            "tv_off_code" -> "TV response code: HTTP ${arg ?: ""}"
+            "tv_err_off" -> "Power-off error: ${arg ?: "No connection"}"
+            else -> arg ?: ""
+        }
+        AppLang.DE -> when (key) {
+            "tv_ready" -> "TV Bereit"
+            "tv_sending_on" -> "Digitale Einschaltbefehle werden gesendet..."
+            "tv_sent_on" -> "WoL + HTTP(true) + IRCC gesendet"
+            "tv_err_on" -> "Einschaltfehler: ${arg ?: "Unbekannter Fehler"}"
+            "tv_sending_off" -> "Ausschaltbefehl wird gesendet..."
+            "tv_off_ok" -> "TV ausgeschaltet (HTTP ${arg ?: ""})"
+            "tv_off_code" -> "TV-Antwortcode: HTTP ${arg ?: ""}"
+            "tv_err_off" -> "Ausschaltfehler: ${arg ?: "Keine Verbindung"}"
+            else -> arg ?: ""
+        }
+    }
+
+    private fun formatPrinterStatus(key: String, arg: String?): String = when (currentLang) {
+        AppLang.TR -> when (key) {
+            "printer_ready" -> "Yazıcı Hazır ($printerIp)"
+            "printer_waking" -> "Yazıcı uyandırılıyor ($printerIp)..."
+            "printer_awake" -> "Yazıcı uyanık ve erişilebilir (HTTP ${arg ?: "-"})"
+            "printer_reachable" -> "Yazıcı ağda yanıt verdi (uyku/bekleme)"
+            "printer_unreachable" -> "Yazıcıya ulaşılamadı (kapalı veya farklı IP)"
+            "printer_err_wake" -> "Uyandırma hatası: ${arg ?: "Bağlantı yok"}"
+            "printer_checking" -> "Yazıcı durumu kontrol ediliyor..."
+            "printer_online" -> arg ?: "Çevrimiçi"
+            "printer_offline" -> "Yanıt yok (arka tuş kapalı veya uyku derin)"
+            "printer_err_check" -> "Kontrol hatası: ${arg ?: "Hata"}"
+            else -> arg ?: ""
+        }
+        AppLang.EN -> when (key) {
+            "printer_ready" -> "Printer Ready ($printerIp)"
+            "printer_waking" -> "Waking printer ($printerIp)..."
+            "printer_awake" -> "Printer awake and reachable (HTTP ${arg ?: "-"})"
+            "printer_reachable" -> "Printer responded on network (sleep/standby)"
+            "printer_unreachable" -> "Printer unreachable (off or different IP)"
+            "printer_err_wake" -> "Wake error: ${arg ?: "No connection"}"
+            "printer_checking" -> "Checking printer status..."
+            "printer_online" -> arg ?: "Online"
+            "printer_offline" -> "No response (power button off or deep sleep)"
+            "printer_err_check" -> "Check error: ${arg ?: "Error"}"
+            else -> arg ?: ""
+        }
+        AppLang.DE -> when (key) {
+            "printer_ready" -> "Drucker Bereit ($printerIp)"
+            "printer_waking" -> "Drucker wird geweckt ($printerIp)..."
+            "printer_awake" -> "Drucker wach und erreichbar (HTTP ${arg ?: "-"})"
+            "printer_reachable" -> "Drucker im Netz erreichbar (Ruhezustand)"
+            "printer_unreachable" -> "Drucker nicht erreichbar (aus oder andere IP)"
+            "printer_err_wake" -> "Weckfehler: ${arg ?: "Keine Verbindung"}"
+            "printer_checking" -> "Druckerstatus wird geprüft..."
+            "printer_online" -> arg ?: "Online"
+                        "printer_offline" -> "Keine Antwort (Netztaste aus oder Tiefschlaf)"
+            "printer_err_check" -> "Prüffehler: ${arg ?: "Fehler"}"
+            else -> arg ?: ""
+        }
+    }
+
+    private fun setTvStatusKey(key: String, colorHex: String, arg: String? = null) {
+        lastTvStatusKey = key
+        lastTvStatusArg = arg
+        lastTvColor = colorHex
+        runOnUiThread { renderTvStatus() }
+    }
+
+    private fun renderTvStatus() {
+        tvStatus.text = formatTvStatus(lastTvStatusKey, lastTvStatusArg)
+        tvStatus.setTextColor(Color.parseColor(lastTvColor))
+    }
+
+    private fun setPrinterStatusKey(key: String, colorHex: String, arg: String? = null) {
+        lastPrinterStatusKey = key
+        lastPrinterStatusArg = arg
+        lastPrinterColor = colorHex
+        runOnUiThread { renderPrinterStatus() }
+    }
+
+    private fun renderPrinterStatus() {
+        printerStatus.text = formatPrinterStatus(lastPrinterStatusKey, lastPrinterStatusArg)
+        printerStatus.setTextColor(Color.parseColor(lastPrinterColor))
+    }
+
+    private fun createCard(): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#1E293B"))
+                cornerRadius = 32f
+                setStroke(2, Color.parseColor("#334155"))
+            }
+            setPadding(36, 36, 36, 36)
+        }
+    }
+
+    private fun buttonParams(bottomMargin: Int): LinearLayout.LayoutParams {
+        return LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            132
+        ).apply {
+            this.bottomMargin = bottomMargin
+        }
     }
 
     private fun createModernButton(label: String, bgColor: String, borderColor: String): Button {
         return Button(this).apply {
             text = label
-            textSize = 18f
+            textSize = 17f
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
             background = GradientDrawable().apply {
                 setColor(Color.parseColor(bgColor))
-                cornerRadius = 28f
+                cornerRadius = 26f
                 setStroke(3, Color.parseColor(borderColor))
             }
-            elevation = 8f
+            elevation = 6f
             stateListAnimator = null
             textAlignment = View.TEXT_ALIGNMENT_CENTER
         }
     }
 
-    private fun setStatus(message: String, colorHex: String) {
-        runOnUiThread {
-            tvStatus.text = message
-            tvStatus.setTextColor(Color.parseColor(colorHex))
+    private fun isPortOpen(ip: String, port: Int, timeoutMs: Int): Boolean {
+        return try {
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress(ip, port), timeoutMs)
+                true
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun wakePrinter() {
+        setPrinterStatusKey("printer_waking", "#60A5FA")
+        thread {
+            try {
+                val reachable = try {
+                    InetAddress.getByName(printerIp).isReachable(2000)
+                } catch (_: Exception) {
+                    false
+                }
+
+                val portsToPoke = listOf(9100, 631, 80, 443)
+                var anyOpen = false
+                for (port in portsToPoke) {
+                    if (isPortOpen(printerIp, port, 1500)) {
+                        anyOpen = true
+                    }
+                }
+
+                var httpCode = -1
+                try {
+                    val conn = (URL("http://$printerIp/").openConnection() as HttpURLConnection).apply {
+                        requestMethod = "GET"
+                        connectTimeout = 2000
+                        readTimeout = 2000
+                    }
+                    httpCode = conn.responseCode
+                    conn.disconnect()
+                } catch (_: Exception) {
+                }
+
+                when {
+                    httpCode in 200..499 || anyOpen -> {
+                        setPrinterStatusKey("printer_awake", "#4ADE80", httpCode.toString())
+                    }
+                    reachable -> {
+                        setPrinterStatusKey("printer_reachable", "#FACC15")
+                    }
+                    else -> {
+                        setPrinterStatusKey("printer_unreachable", "#F87171")
+                    }
+                }
+            } catch (e: Exception) {
+                setPrinterStatusKey("printer_err_wake", "#F87171", e.localizedMessage)
+            }
+        }
+    }
+
+    private fun checkPrinterStatus() {
+        setPrinterStatusKey("printer_checking", "#CBD5E1")
+        thread {
+            try {
+                val port9100 = isPortOpen(printerIp, 9100, 1500)
+                val port631 = isPortOpen(printerIp, 631, 1500)
+                val port80 = isPortOpen(printerIp, 80, 1500)
+
+                var httpCode = -1
+                try {
+                    val conn = (URL("http://$printerIp/").openConnection() as HttpURLConnection).apply {
+                        requestMethod = "GET"
+                        connectTimeout = 2000
+                        readTimeout = 2000
+                    }
+                    httpCode = conn.responseCode
+                    conn.disconnect()
+                } catch (_: Exception) {
+                }
+
+                if (port9100 || port631 || port80 || httpCode in 200..499) {
+                    val info = "Online • HTTP:${if (httpCode > 0) httpCode else "-"} • 9100:${if (port9100) "ON" else "OFF"}"
+                    setPrinterStatusKey("printer_online", "#4ADE80", info)
+                } else {
+                    setPrinterStatusKey("printer_offline", "#F87171")
+                }
+            } catch (e: Exception) {
+                setPrinterStatusKey("printer_err_check", "#F87171", e.localizedMessage)
+            }
         }
     }
 
     private fun sendDigitalPowerOn() {
-        setStatus("Dijital açma komutları gönderiliyor...", "#4ADE80")
+        setTvStatusKey("tv_sending_on", "#4ADE80")
         thread {
             var multicastLock: WifiManager.MulticastLock? = null
             try {
@@ -158,7 +680,6 @@ class MainActivity : Activity() {
                     acquire()
                 }
 
-                // 1) Wake-on-LAN paketleri
                 val macBytes = tvMac.replace("-", ":").split(":").map { it.toInt(16).toByte() }.toByteArray()
                 if (macBytes.size == 6) {
                     val magicPacket = ByteArray(6 + 16 * macBytes.size)
@@ -184,7 +705,6 @@ class MainActivity : Activity() {
                     socket.close()
                 }
 
-                // 2) HTTP setPowerStatus: true
                 try {
                     val url = URL("http://$tvIp/sony/system")
                     val conn = (url.openConnection() as HttpURLConnection).apply {
@@ -202,7 +722,6 @@ class MainActivity : Activity() {
                 } catch (_: Exception) {
                 }
 
-                // 3) IRCC PowerOn (AAAAAQAAAAEAAAAuAw==)
                 try {
                     val irccUrl = URL("http://$tvIp/sony/ircc")
                     val irccConn = (irccUrl.openConnection() as HttpURLConnection).apply {
@@ -230,9 +749,9 @@ class MainActivity : Activity() {
                 } catch (_: Exception) {
                 }
 
-                setStatus("WoL + HTTP(true) + IRCC gönderildi", "#4ADE80")
+                setTvStatusKey("tv_sent_on", "#4ADE80")
             } catch (e: Exception) {
-                setStatus("Açma hatası: ${e.localizedMessage ?: "Bilinmeyen hata"}", "#F87171")
+                setTvStatusKey("tv_err_on", "#F87171", e.localizedMessage)
             } finally {
                 try {
                     if (multicastLock?.isHeld == true) {
@@ -245,7 +764,7 @@ class MainActivity : Activity() {
     }
 
     private fun sendPowerOff() {
-        setStatus("Kapatma komutu gönderiliyor...", "#F87171")
+        setTvStatusKey("tv_sending_off", "#F87171")
         thread {
             try {
                 val url = URL("http://$tvIp/sony/system")
@@ -263,12 +782,12 @@ class MainActivity : Activity() {
                 conn.disconnect()
 
                 if (code in 200..299) {
-                    setStatus("TV kapatıldı (HTTP $code)", "#4ADE80")
+                    setTvStatusKey("tv_off_ok", "#4ADE80", code.toString())
                 } else {
-                    setStatus("TV yanıt kodu: HTTP $code", "#FACC15")
+                    setTvStatusKey("tv_off_code", "#FACC15", code.toString())
                 }
             } catch (e: Exception) {
-                setStatus("Kapatma hatası: ${e.localizedMessage ?: "Bağlantı yok"}", "#F87171")
+                setTvStatusKey("tv_err_off", "#F87171", e.localizedMessage)
             }
         }
     }
