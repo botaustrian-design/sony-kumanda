@@ -1,6 +1,8 @@
 package com.example.sonytvkumanda
 
 import android.os.Bundle
+import android.view.View
+import android.view.ViewGroup
 import android.widget.Button
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -21,18 +23,35 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        val btnOn = findViewById<Button>(R.id.btnPowerOn)
-        val btnOff = findViewById<Button>(R.id.btnPowerOff)
+        val rootView = findViewById<View>(android.R.id.content)
+        val buttons = findAllButtons(rootView)
 
-        btnOn.setOnClickListener {
+        val btnOn = buttons.getOrNull(0)
+        val btnOff = buttons.getOrNull(1)
+
+        btnOn?.setOnClickListener {
             sendWakeOnLan(tvMac)
-            Toast.makeText(this, "Açma sinyali gönderildi", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "TV açma sinyali gönderildi", Toast.LENGTH_SHORT).show()
         }
 
-        btnOff.setOnClickListener {
+        btnOff?.setOnClickListener {
             sendPowerOff(tvIp, tvPsk)
-            Toast.makeText(this, "Kapatma komutu gönderildi", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "TV kapatma komutu gönderildi", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun findAllButtons(view: View?): List<Button> {
+        if (view == null) return emptyList()
+        val result = mutableListOf<Button>()
+        if (view is Button) {
+            result.add(view)
+        }
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) {
+                result.addAll(findAllButtons(view.getChildAt(i)))
+            }
+        }
+        return result
     }
 
     private fun sendWakeOnLan(macAddress: String) {
