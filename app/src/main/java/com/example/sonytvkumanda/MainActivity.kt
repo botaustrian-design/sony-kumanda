@@ -2,9 +2,8 @@ package com.example.sonytvkumanda
 
 import android.os.Bundle
 import android.widget.Button
-import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import java.io.OutputStreamWriter
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.HttpURLConnection
@@ -16,82 +15,64 @@ class MainActivity : AppCompatActivity() {
 
     private val tvIp = "192.168.8.102"
     private val tvMac = "e8:6f:38:a6:97:83"
-    private val pskKey = "1234"
+    private val tvPsk = "1234"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        val btnTvAc = findViewById<Button>(R.id.btnTvAc)
-        val btnTvKapat = findViewById<Button>(R.id.btnTvKapat)
-        val tvDurum = findViewById<TextView>(R.id.tvDurum)
+        val btnOn = findViewById<Button>(R.id.btnPowerOn)
+        val btnOff = findViewById<Button>(R.id.btnPowerOff)
 
-        btnTvAc.setOnClickListener {
-            tvDurum.text = "TV açılıyor..."
-            thread {
-                sendWakeOnLan(tvMac)
-                val ok = setPowerStatus(true)
-                runOnUiThread {
-                    tvDurum.text = if (ok) "Açma komutu gönderildi" else "WoL paketi gönderildi (TV uyanıyor)"
-                }
-            }
+        btnOn.setOnClickListener {
+            sendWakeOnLan(tvMac)
+            Toast.makeText(this, "Açma sinyali gönderildi", Toast.LENGTH_SHORT).show()
         }
 
-        btnTvKapat.setOnClickListener {
-            tvDurum.text = "TV kapatılıyor..."
-            thread {
-                val ok = setPowerStatus(false)
-                runOnUiThread {
-                    tvDurum.text = if (ok) "TV kapatıldı" else "Bağlantı hatası (TV kapalı veya aynı Wi-Fi'de değil)"
-                }
-            }
+        btnOff.setOnClickListener {
+            sendPowerOff(tvIp, tvPsk)
+            Toast.makeText(this, "Kapatma komutu gönderildi", Toast.LENGTH_SHORT).show()
         }
     }
 
-    private fun setPowerStatus(turnOn: Boolean): Boolean {
-        return try {
-            val url = URL("http://$tvIp/sony/system")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                connectTimeout = 3000
-                readTimeout = 3000
-                doOutput = true
-                setRequestProperty("Content-Type", "application/json")
-                setRequestProperty("X-Auth-PSK", pskKey)
-            }
-
-            val body = """{"method":"setPowerStatus","id":55,"params":[{"status":$turnOn}],"version":"1.0"}"""
-            OutputStreamWriter(conn.outputStream).use { writer ->
-                writer.write(body)
-                writer.flush()
-            }
-
-            val code = conn.responseCode
-            conn.disconnect()
-            code in 200..299
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    private fun sendWakeOnLan(macStr: String) {
-        try {
-            val macBytes = macStr.split(":", "-").map { it.toInt(16).toByte() }.toByteArray()
-            if (macBytes.size != 6) return
-
-            val magicPacket = ByteArray(6 + 16 * 6)
-            for (i in 0 until 6) magicPacket[i] = 0xFF.toByte()
-            for (i in 6 until magicPacket.size step 6) {
-                System.arraycopy(macBytes, 0, magicPacket, i, 6)
-            }
-
-            val broadcast = InetAddress.getByName("255.255.255.255")
-            DatagramSocket().use { socket ->
+    private fun sendWakeOnLan(macAddress: String) {
+        thread {
+            try {
+                val macBytes = macAddress.split(":").map { it.toInt(16).toByte() }.toByteArray()
+                val magicPacket = ByteArray(6 + 16 * macBytes.size)
+                for (i in 0 until 6) magicPacket[i] = 0xFF.toByte()
+                for (i in 6 until magicPacket.size) {
+                    magicPacket[i] = macBytes[i % macBytes.size]
+                }
+                val address = InetAddress.getByName("255.255.255.255")
+                val socket = DatagramSocket()
                 socket.broadcast = true
-                val packet = DatagramPacket(magicPacket, magicPacket.size, broadcast, 9)
+                val packet = DatagramPacket(magicPacket, magicPacket.size, address, 9)
                 socket.send(packet)
+                socket.close()
+            } catch (_: Exception) {
             }
-        } catch (_: Exception) {
+        }
+    }
+
+    private fun sendPowerOff(ip: String, psk: String) {
+        thread {
+            try {
+                val url = URL("http://$ip/sony/system")
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    setRequestProperty("Content-Type", "application/json")
+                    setRequestProperty("X-Auth-PSK", psk)
+                    connectTimeout = 3000
+                    readTimeout = 3000
+                    doOutput = true
+                }
+                val body = """{"method":"setPowerStatus","id":1,"params":[{"status":false}],"version":"1.0"}"""
+                conn.outputStream.use { it.write(body.toByteArray()) }
+                conn.responseCode
+                conn.disconnect()
+            } catch (_: Exception) {
+            }
         }
     }
 }
