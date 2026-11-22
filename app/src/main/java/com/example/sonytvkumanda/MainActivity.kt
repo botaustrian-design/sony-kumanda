@@ -74,8 +74,7 @@ class MainActivity : Activity() {
             borderColor = "#4ADE80"
         ).apply {
             setOnClickListener {
-                setStatus("Açma sinyalleri gönderiliyor (1/3)...", "#4ADE80")
-                sendWakeOnLanBurst(tvMac)
+                sendDigitalPowerOn()
             }
         }
 
@@ -85,13 +84,12 @@ class MainActivity : Activity() {
             borderColor = "#F87171"
         ).apply {
             setOnClickListener {
-                setStatus("Kapatma komutu gönderiliyor...", "#F87171")
-                sendPowerOff(tvIp, tvPsk)
+                sendPowerOff()
             }
         }
 
         tvStatus = TextView(this).apply {
-            text = "Hazır — Ağ: $subnetBroadcast"
+            text = "Hazır — Dijital aç/kapat aktif"
             textSize = 13f
             setTextColor(Color.parseColor("#CBD5E1"))
             gravity = Gravity.CENTER
@@ -149,7 +147,8 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun sendWakeOnLanBurst(macAddress: String) {
+    private fun sendDigitalPowerOn() {
+        setStatus("Dijital açma komutları gönderiliyor...", "#4ADE80")
         thread {
             var multicastLock: WifiManager.MulticastLock? = null
             try {
@@ -159,48 +158,81 @@ class MainActivity : Activity() {
                     acquire()
                 }
 
-                val cleanMac = macAddress.replace("-", ":")
-                val macBytes = cleanMac.split(":").map { it.toInt(16).toByte() }.toByteArray()
-                if (macBytes.size != 6) {
-                    setStatus("MAC adresi hatalı", "#F87171")
-                    return@thread
-                }
-
-                val magicPacket = ByteArray(6 + 16 * macBytes.size)
-                for (i in 0 until 6) magicPacket[i] = 0xFF.toByte()
-                for (i in 6 until magicPacket.size) {
-                    magicPacket[i] = macBytes[i % macBytes.size]
-                }
-
-                val targets = listOf(
-                    InetAddress.getByName(tvIp),
-                    InetAddress.getByName(subnetBroadcast),
-                    InetAddress.getByName("255.255.255.255")
-                )
-                val ports = listOf(9, 7, 2304)
-
-                val socket = DatagramSocket().apply {
-                    broadcast = true
-                    soTimeout = 2000
-                }
-
-                for (round in 1..3) {
-                    setStatus("Açma sinyalleri gönderiliyor ($round/3)...", "#4ADE80")
+                // 1) Wake-on-LAN paketleri
+                val macBytes = tvMac.replace("-", ":").split(":").map { it.toInt(16).toByte() }.toByteArray()
+                if (macBytes.size == 6) {
+                    val magicPacket = ByteArray(6 + 16 * macBytes.size)
+                    for (i in 0 until 6) magicPacket[i] = 0xFF.toByte()
+                    for (i in 6 until magicPacket.size) {
+                        magicPacket[i] = macBytes[i % macBytes.size]
+                    }
+                    val targets = listOf(
+                        InetAddress.getByName(tvIp),
+                        InetAddress.getByName(subnetBroadcast),
+                        InetAddress.getByName("255.255.255.255")
+                    )
+                    val ports = listOf(9, 7, 2304)
+                    val socket = DatagramSocket().apply {
+                        broadcast = true
+                        soTimeout = 1500
+                    }
                     for (addr in targets) {
                         for (port in ports) {
-                            val packet = DatagramPacket(magicPacket, magicPacket.size, addr, port)
-                            socket.send(packet)
+                            socket.send(DatagramPacket(magicPacket, magicPacket.size, addr, port))
                         }
                     }
-                    if (round < 3) {
-                        Thread.sleep(600)
-                    }
+                    socket.close()
                 }
-                socket.close()
 
-                setStatus("3 tur WoL tamamlandı ($tvMac)", "#4ADE80")
+                // 2) HTTP setPowerStatus: true
+                try {
+                    val url = URL("http://$tvIp/sony/system")
+                    val conn = (url.openConnection() as HttpURLConnection).apply {
+                        requestMethod = "POST"
+                        setRequestProperty("Content-Type", "application/json")
+                        setRequestProperty("X-Auth-PSK", tvPsk)
+                        connectTimeout = 2000
+                        readTimeout = 2000
+                        doOutput = true
+                    }
+                    val body = """{"method":"setPowerStatus","id":1,"params":[{"status":true}],"version":"1.0"}"""
+                    conn.outputStream.use { it.write(body.toByteArray()) }
+                    conn.responseCode
+                    conn.disconnect()
+                } catch (_: Exception) {
+                }
+
+                // 3) IRCC PowerOn (AAAAAQAAAAEAAAAuAw==)
+                try {
+                    val irccUrl = URL("http://$tvIp/sony/ircc")
+                    val irccConn = (irccUrl.openConnection() as HttpURLConnection).apply {
+                        requestMethod = "POST"
+                        setRequestProperty("Content-Type", "text/xml; charset=UTF-8")
+                        setRequestProperty("SOAPACTION", "\"urn:schemas-sony-com:service:IRCC:1#X_SendIRCC\"")
+                        setRequestProperty("X-Auth-PSK", tvPsk)
+                        connectTimeout = 2000
+                        readTimeout = 2000
+                        doOutput = true
+                    }
+                    val soapBody = """
+                        <?xml version="1.0"?>
+                        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                          <s:Body>
+                            <u:X_SendIRCC xmlns:u="urn:schemas-sony-com:service:IRCC:1">
+                              <IRCCCode>AAAAAQAAAAEAAAAuAw==</IRCCCode>
+                            </u:X_SendIRCC>
+                          </s:Body>
+                        </s:Envelope>
+                    """.trimIndent()
+                    irccConn.outputStream.use { it.write(soapBody.toByteArray(Charsets.UTF_8)) }
+                    irccConn.responseCode
+                    irccConn.disconnect()
+                } catch (_: Exception) {
+                }
+
+                setStatus("WoL + HTTP(true) + IRCC gönderildi", "#4ADE80")
             } catch (e: Exception) {
-                setStatus("WoL hatası: ${e.localizedMessage ?: "Bilinmeyen hata"}", "#F87171")
+                setStatus("Açma hatası: ${e.localizedMessage ?: "Bilinmeyen hata"}", "#F87171")
             } finally {
                 try {
                     if (multicastLock?.isHeld == true) {
@@ -212,14 +244,15 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun sendPowerOff(ip: String, psk: String) {
+    private fun sendPowerOff() {
+        setStatus("Kapatma komutu gönderiliyor...", "#F87171")
         thread {
             try {
-                val url = URL("http://$ip/sony/system")
+                val url = URL("http://$tvIp/sony/system")
                 val conn = (url.openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"
                     setRequestProperty("Content-Type", "application/json")
-                    setRequestProperty("X-Auth-PSK", psk)
+                    setRequestProperty("X-Auth-PSK", tvPsk)
                     connectTimeout = 3000
                     readTimeout = 3000
                     doOutput = true
