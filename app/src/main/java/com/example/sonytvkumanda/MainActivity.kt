@@ -51,7 +51,7 @@ class MainActivity : Activity() {
         }
 
         val subtitleText = TextView(this).apply {
-            text = "IP: $tvIp  •  PSK: $tvPsk"
+            text = "IP: $tvIp  •  PSK: $tvPsk\nMAC: $tvMac"
             textSize = 13f
             setTextColor(Color.parseColor("#94A3B8"))
             gravity = Gravity.CENTER
@@ -74,7 +74,7 @@ class MainActivity : Activity() {
             borderColor = "#4ADE80"
         ).apply {
             setOnClickListener {
-                setStatus("Açma (Wake-on-LAN) sinyali gönderiliyor...", "#4ADE80")
+                setStatus("Açma (WoL) paketi gönderiliyor...", "#4ADE80")
                 sendWakeOnLan(tvMac)
             }
         }
@@ -91,7 +91,7 @@ class MainActivity : Activity() {
         }
 
         tvStatus = TextView(this).apply {
-            text = "Hazır — TV ile aynı Wi-Fi ağında olun"
+            text = "Hazır — Ağ: $subnetBroadcast"
             textSize = 13f
             setTextColor(Color.parseColor("#CBD5E1"))
             gravity = Gravity.CENTER
@@ -173,6 +173,7 @@ class MainActivity : Activity() {
                 }
 
                 val targets = listOf(
+                    InetAddress.getByName(tvIp),
                     InetAddress.getByName(subnetBroadcast),
                     InetAddress.getByName("255.255.255.255")
                 )
@@ -191,7 +192,7 @@ class MainActivity : Activity() {
                 }
                 socket.close()
 
-                setStatus("WoL paketi gönderildi ($subnetBroadcast & 255.255.255.255)", "#4ADE80")
+                setStatus("WoL gönderildi ($tvIp & $subnetBroadcast)", "#4ADE80")
             } catch (e: Exception) {
                 setStatus("WoL hatası: ${e.localizedMessage ?: "Bilinmeyen hata"}", "#F87171")
             } finally {
